@@ -1,0 +1,17 @@
+name: amazon_book_dssm
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - numpy
+  - pandas
+  - scikit-learn
+  - tqdm
+  - pip
+  - pip:
+      - torch==2.2.1          # M1/M2/M3 官方支持 mps 的版本
+      - torchvision
+      - torchaudio
+      - transformers
+      - sentence-transformers
+      - faiss-cpu              # M1 只能用 CPU 版，但你有 MPS 加速训练，所以 OK
