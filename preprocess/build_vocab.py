@@ -1,20 +1,16 @@
-# -*- coding: utf-8 -*-
-# @Author  : Jerry Wenjie Wu
-# @Time    : 19/11/2025 10:11
-
 # preprocess/build_vocab.py
-
-def build_vocab(user_sequences):
-    # user vocab
+def build_user_item_vocab(user_sequences):
     users = list(user_sequences.keys())
-    user2id = {u: idx+1 for idx, u in enumerate(users)}
+    user2id = {u: i+1 for i, u in enumerate(users)}
 
-    # item vocab
     all_items = set()
     for seq in user_sequences.values():
         all_items.update(seq)
-
-    items = list(all_items)
-    item2id = {i: idx+1 for idx, i in enumerate(items)}
+    item2id = {i: k+1 for k, i in enumerate(all_items)}
 
     return user2id, item2id
+
+def build_category_vocab(item_meta):
+    cats = {meta["category"] for meta in item_meta.values()}
+    cat2id = {c: i+1 for i, c in enumerate(cats)}
+    return cat2id

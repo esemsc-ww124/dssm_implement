@@ -1,47 +1,28 @@
 # preprocess/parse_reviews.py
 import gzip
 import json
+from collections import defaultdict
 
 def parse(path):
     with gzip.open(path, 'r') as f:
         for line in f:
-            try:
-                yield json.loads(line)
-            except:
-                # 新版可能不是严格 json，用 eval 兜底
-                yield eval(line)
+            yield json.loads(line)
 
 def build_user_sequences(reviews_path):
-    user_interactions = {}
+    user_seq = defaultdict(list)
+    user_hotness = defaultdict(int)
 
-    for review in parse(reviews_path):
-        # 必备字段检查
-        if ("reviewerID" not in review) or ("asin" not in review):
+    for r in parse(reviews_path):
+        user = r.get("reviewerID")
+        item = r.get("asin")
+
+        if not user or not item:
             continue
 
-        user = review["reviewerID"]
-        item = review["asin"]
+        user_seq[user].append(item)
+        user_hotness[user] += 1
 
-        # 有些新版 review 没有 unixReviewTime，用 reviewTime 转换
-        ts = review.get("unixReviewTime")
+    # 去掉序列长度 < 2 的用户
+    user_seq = {u: seq for u, seq in user_seq.items() if len(seq) >= 2}
 
-        if ts is None:
-            # 兼容 "01 1, 2018" 格式
-            import time
-            try:
-                ts = int(time.mktime(time.strptime(review["reviewTime"], "%m %d, %Y")))
-            except:
-                continue
-
-        if user not in user_interactions:
-            user_interactions[user] = []
-
-        user_interactions[user].append((ts, item))
-
-    # 排序
-    sorted_sequences = {
-        user: [item for _, item in sorted(pairs)]
-        for user, pairs in user_interactions.items()
-    }
-
-    return sorted_sequences
+    return user_seq, user_hotness

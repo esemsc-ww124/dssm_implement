@@ -5,10 +5,19 @@ import json
 def parse(path):
     with gzip.open(path, 'r') as f:
         for line in f:
-            try:
-                yield json.loads(line)
-            except:
-                yield eval(line)
+            yield json.loads(line)
+
+def clean_description(desc):
+        if isinstance(desc, list):
+            return " ".join(desc)
+        if isinstance(desc, str):
+            return desc
+        return ""
+
+def clean_category(cat):
+        if isinstance(cat, list):
+            return cat
+        return []
 
 def build_item_meta(meta_path):
     item_meta = {}
@@ -19,17 +28,14 @@ def build_item_meta(meta_path):
             continue
 
         title = meta.get("title", "")
-        brand = meta.get("brand", "")
-        categories = meta.get("categories", [[]])
+        description = clean_description(meta.get("description", ""))
+        categories = clean_category(meta.get("category", []))
 
-        if categories and isinstance(categories[0], list):
-            category = categories[0]
-        else:
-            category = categories
+        category = categories[0] if len(categories) > 0 else "unknown"
 
         item_meta[asin] = {
             "title": title,
-            "brand": brand,
+            "description": description,
             "category": category
         }
 
