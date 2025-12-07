@@ -29,14 +29,13 @@ def build_item_meta(meta_path):
 
         title = meta.get("title", "")
         description = clean_description(meta.get("description", ""))
-        categories = clean_category(meta.get("category", []))
-
-        category = categories[0] if len(categories) > 0 else "unknown"
+        categories = clean_category(meta.get("category", []))  # list[str]
 
         item_meta[asin] = {
             "title": title,
             "description": description,
-            "category": category
+            "categories": categories   # ✅ 保存完整列表
         }
 
     return item_meta
+

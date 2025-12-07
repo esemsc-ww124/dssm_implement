@@ -11,6 +11,10 @@ def build_user_item_vocab(user_sequences):
     return user2id, item2id
 
 def build_category_vocab(item_meta):
-    cats = {meta["category"] for meta in item_meta.values()}
+    cats = set()
+    for meta in item_meta.values():
+        for c in meta.get("categories", []):
+            cats.add(c)
     cat2id = {c: i+1 for i, c in enumerate(cats)}
     return cat2id
+

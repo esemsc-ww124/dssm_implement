@@ -27,8 +27,7 @@ vocab = build_text_vocab(item_meta)
 
 print("Step 5: Build samples...")
 samples = build_samples(
-    user_sequences, user2id, item2id,
-    item_meta, cat2id, item_stats, vocab
+    user_sequences, user2id, item2id
 )
 
 # 保存所有文件
