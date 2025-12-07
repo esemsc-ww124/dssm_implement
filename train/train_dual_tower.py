@@ -1,92 +1,112 @@
-# train/train_dual_tower.py
+# train/train_pairwise.py
+# -*- coding: utf-8 -*-
 
+import os
+import pickle
 import torch
-import torch.nn as nn
 from torch.utils.data import DataLoader
-from dataset import AmazonDataset
+
+from dataset import AmazonPairDataset
 from model.user_tower import UserTower
 from model.item_tower import ItemTower
-from model.dual_tower import DualTower
-import pickle
+from model.dual_tower import DualTowerPairwise
 
-BATCH_SIZE = 128
+BATCH_SIZE = 256
 EPOCHS = 3
 LR = 1e-3
 EMBED_DIM = 64
 MAX_SEQ_LEN = 20
 
-def load_vocab(path):
-    with open(path, "rb") as f:
+
+def load_pkl(data_dir, name):
+    with open(os.path.join(data_dir, name), "rb") as f:
         return pickle.load(f)
 
-def get_device():
-    if torch.cuda.is_available():
-        print("Using CUDA:", torch.cuda.get_device_name(0))
-        return torch.device("cuda")
-    elif torch.backends.mps.is_available():
-        print("Using Apple MPS")
-        return torch.device("mps")
-    else:
-        print("Using CPU")
-        return torch.device("cpu")
 
 def main():
-    DEVICE = get_device()
+    data_dir = "../data"
 
-    item2id = load_vocab("../data/item2id.pkl")
+    # 1) 读 vocab 大小
+    user2id = load_pkl(data_dir, "user2id.pkl")
+    item2id = load_pkl(data_dir, "item2id.pkl")
+    cat2id = load_pkl(data_dir, "cat2id.pkl")
+    text_vocab = load_pkl(data_dir, "text_vocab.pkl")
+
+    num_users = len(user2id)
     num_items = len(item2id)
+    num_cats = len(cat2id)
+    vocab_size = len(text_vocab)
 
-    # ===== DataLoader（更快） =====
-    dataset = AmazonDataset("../data/train_samples.pkl", max_seq_len=MAX_SEQ_LEN)
+    print(f"num_users={num_users}, num_items={num_items}, num_cats={num_cats}, vocab_size={vocab_size}")
+
+    # 2) Dataset & DataLoader
+    dataset = AmazonPairDataset(
+        data_dir=data_dir,
+        max_seq_len=MAX_SEQ_LEN,
+        max_cat_per_item=4,
+        max_text_len=32,
+    )
+
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+    elif torch.backends.mps.is_available():
+        device = torch.device("mps")
+    else:
+        device = torch.device("cpu")
+
     dataloader = DataLoader(
         dataset,
         batch_size=BATCH_SIZE,
         shuffle=True,
-        pin_memory=True if DEVICE.type == "cuda" else False,
-        num_workers=4
+        num_workers=0,
+        pin_memory=(device.type == "cuda"),
     )
 
-    # ===== Shared embedding on device =====
-    shared_item_embedding = nn.Embedding(
-        num_items + 1, EMBED_DIM, padding_idx=0
-    ).to(DEVICE)
+    # 3) Model
+    user_tower = UserTower(
+        num_users=num_users,
+        num_items=num_items,
+        embed_dim=EMBED_DIM,
+    )
 
-    user_tower = UserTower(shared_item_embedding).to(DEVICE)
-    item_tower = ItemTower(shared_item_embedding).to(DEVICE)
-    model = DualTower(user_tower, item_tower).to(DEVICE)
+    item_tower = ItemTower(
+        num_items=num_items,
+        num_cats=num_cats,
+        vocab_size=vocab_size,
+        embed_dim=EMBED_DIM,
+    )
+
+    model = DualTowerPairwise(user_tower, item_tower).to(device)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=LR)
-    scaler = torch.cuda.amp.GradScaler(enabled=(DEVICE.type == "cuda"))
 
-    # ===== Training loop =====
+    # 4) Training loop
+    model.train()
     for epoch in range(EPOCHS):
-        total_loss = 0
-        model.train()
+        total_loss = 0.0
+        for step, batch in enumerate(dataloader):
+            # 把 batch 里的 tensor 全部搬到 device
+            batch = {k: v.to(device) for k, v in batch.items()}
 
-        for batch_idx, (seq, pos_item) in enumerate(dataloader):
-
-            seq = seq.to(DEVICE, non_blocking=True)
-            pos_item = pos_item.to(DEVICE, non_blocking=True)
-
-            # ===== Mixed Precision Training =====
-            with torch.cuda.amp.autocast(enabled=(DEVICE.type == "cuda")):
-                loss, _, _ = model(seq, pos_item)
+            loss, pos_score, neg_score = model(batch)
 
             optimizer.zero_grad()
-            scaler.scale(loss).backward()
-            scaler.step(optimizer)
-            scaler.update()
+            loss.backward()
+            optimizer.step()
 
             total_loss += loss.item()
 
-            if batch_idx % 100 == 0:
-                print(f"[Epoch {epoch}] batch={batch_idx}, loss={loss.item():.4f}")
+            if step % 100 == 0:
+                print(f"[Epoch {epoch}] step={step}, loss={loss.item():.4f}")
 
-        print(f"Epoch {epoch} finished, AvgLoss={total_loss/len(dataloader):.4f}")
+        avg_loss = total_loss / len(dataloader)
+        print(f"Epoch {epoch} finished, AvgLoss={avg_loss:.4f}")
 
-    torch.save(model.state_dict(), "../data/dual_tower.pt")
-    print("Model saved at ../data/dual_tower.pt")
+    # 5) 保存模型
+    os.makedirs(data_dir, exist_ok=True)
+    torch.save(model.state_dict(), os.path.join(data_dir, "dual_tower_pairwise.pt"))
+    print("Model saved at ../data/dual_tower_pairwise.pt")
+
 
 if __name__ == "__main__":
-    torch.backends.cudnn.benchmark = True
     main()

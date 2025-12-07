@@ -1,30 +1,52 @@
-# model/user_tower.py
+# model/user_tower_pairwise.py
+# -*- coding: utf-8 -*-
+
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
+
 
 class UserTower(nn.Module):
-    def __init__(self, shared_embedding):
+    def __init__(self, num_users, num_items, embed_dim=64):
         super().__init__()
-        self.item_embedding = shared_embedding  # 共享 embedding
 
-    def forward(self, seq):
+        # 用户 ID embedding
+        self.user_embedding = nn.Embedding(num_users + 1, embed_dim)
+
+        # 序列里的 item embedding
+        self.item_embedding = nn.Embedding(num_items + 1, embed_dim)
+
+        # 融合 MLP： [user_emb, seq_vec, seq_len] -> user_vec
+        self.mlp = nn.Sequential(
+            nn.Linear(embed_dim * 2 + 1, 128),
+            nn.ReLU(),
+            nn.Linear(128, embed_dim),
+        )
+
+    def forward(self, user_ids, seq, seq_len):
         """
-        seq: LongTensor [batch, seq_len]
+        user_ids: [B]
+        seq:      [B, L]  （item_id 序列，0 是 padding）
+        seq_len:  [B]     （有效长度）
         """
-        # [B, seq_len, D]
-        item_emb = self.item_embedding(seq)
+        # 1) user embedding
+        u_emb = self.user_embedding(user_ids)          # [B, D]
 
-        # mask 去掉 padding=0
-        mask = (seq != 0).float().unsqueeze(-1)   # [B, seq_len, 1]
-        masked_emb = item_emb * mask
+        # 2) 序列 embedding + mean pooling
+        seq_emb = self.item_embedding(seq)             # [B, L, D]
+        mask = (seq != 0).float().unsqueeze(-1)        # [B, L, 1]
 
-        sum_emb = masked_emb.sum(dim=1)           # [B, D]
-        seq_len = mask.sum(dim=1) + 1e-9          # [B, 1]
+        if mask.sum() > 0:
+            seq_sum = (seq_emb * mask).sum(dim=1)      # [B, D]
+            seq_cnt = mask.sum(dim=1) + 1e-9           # [B, 1]
+            seq_vec = seq_sum / seq_cnt                # [B, D]
+        else:
+            seq_vec = torch.zeros_like(u_emb)
 
-        user_emb = sum_emb / seq_len              # [B, D]
+        # 3) seq_len 当作一个简单的连续特征
+        seq_len_feat = seq_len.unsqueeze(-1).float()   # [B, 1]
 
-        # normalize（保持与 item tower 一致）
-        user_emb = F.normalize(user_emb, dim=-1)
+        # 4) 融合
+        x = torch.cat([u_emb, seq_vec, seq_len_feat], dim=-1)  # [B, 2D+1]
+        user_vec = self.mlp(x)                                 # [B, D]
 
-        return user_emb
+        return user_vec
