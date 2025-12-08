@@ -6,7 +6,7 @@ import pickle
 import torch
 from torch.utils.data import DataLoader
 
-from dataset import AmazonPairDataset
+from train.dataset import AmazonPairDataset
 from model.user_tower import UserTower
 from model.item_tower import ItemTower
 from model.dual_tower import DualTowerPairwise
